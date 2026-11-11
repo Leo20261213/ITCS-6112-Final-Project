@@ -4,6 +4,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -225,3 +226,24 @@ def mark_notification_read(notification_id: int, db: Session = Depends(get_db), 
     db.commit()
     db.refresh(notification)
     return notification
+
+
+@router.get("/tickets/{ticket_id}/attachments/{attachment_id}/download")
+def download_attachment(
+    ticket_id: int,
+    attachment_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ticket = _ticket_or_404(db, ticket_id, user)
+    record = db.get(Attachment, attachment_id)
+    if record is None or record.ticket_id != ticket.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment not found")
+    path = (UPLOAD_DIR / record.stored_name).resolve()
+    if path.parent != UPLOAD_DIR.resolve() or not path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment file is unavailable")
+    return FileResponse(
+        path,
+        media_type=record.content_type,
+        filename=record.original_name,
+    )
