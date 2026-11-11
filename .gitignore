@@ -5,6 +5,12 @@ __pycache__/
 .pytest_cache/
 *.db
 
+# Local secrets and generated uploads
+.env
+backend/.env
+backend/uploads/
+uploads/
+
 # Node
 node_modules/
 dist/
