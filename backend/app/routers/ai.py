@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import (
     AIConfiguration, Category, Comment, Priority, Role, Status,
-    Ticket, TicketHistory, User, utcnow
+    Ticket, User, utcnow
 )
 from ..schemas import AIConfigOut, AIConfigUpdate, AITextRequest
 from ..security import get_current_user, require_roles
@@ -52,6 +52,11 @@ async def _ask_provider(db: Session, prompt: str) -> str | None:
             return data["choices"][0]["message"]["content"].strip()
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
         return None
+
+
+def _source_label(db: Session) -> str:
+    config = _get_config(db)
+    return "configured_ai" if config.enabled and os.getenv("AI_API_KEY") and config.model else "local_fallback"
 
 
 def _ticket_access(ticket: Ticket, user: User) -> bool:
@@ -139,7 +144,7 @@ async def summarize_ticket(ticket_id: int, db: Session = Depends(get_db),
     if not answer:
         chunks = [ticket.title, ticket.description] + [c.body for c in comments]
         answer = "\n".join(f"- {part[:240]}" for part in chunks[:3])
-    return {"ticket_id": ticket.id, "summary": answer, "source": "configured_ai" if os.getenv("AI_API_KEY") else "local_fallback"}
+    return {"ticket_id": ticket.id, "summary": answer, "source": _source_label(db)}
 
 
 @router.post("/ai/tickets/{ticket_id}/response-suggestion")
@@ -216,7 +221,6 @@ def update_ai_config(body: AIConfigUpdate, db: Session = Depends(get_db),
     config.model = body.model.strip()
     config.base_url = body.base_url.rstrip("/")
     config.updated_at = utcnow()
-    db.add(TicketHistory) if False else None
     db.commit()
     db.refresh(config)
     return config
