@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Category, Priority, Role, Status, Ticket, User
+from ..models import Category, Notification, Priority, Role, Status, Ticket, TicketHistory, User
 from ..schemas import CategoryOut, MetaOut, TicketCreate, TicketOut, TicketStatusUpdate
 from ..security import get_current_user, require_roles
 
@@ -45,7 +45,7 @@ def pick_agent(db: Session) -> User | None:
 
 
 def can_view(user: User, ticket: Ticket) -> bool:
-    if user.role == Role.ADMIN:
+    if user.role in (Role.ADMIN, Role.MANAGER):
         return True
     if user.role == Role.AGENT:
         return ticket.assigned_to_id == user.id
@@ -86,6 +86,10 @@ def create_ticket(
     agent = pick_agent(db)
     ticket.assigned_to_id = agent.id if agent else None
     db.add(ticket)
+    db.flush()
+    db.add(TicketHistory(ticket_id=ticket.id, actor_id=user.id, action="created", details="Ticket submitted"))
+    if agent:
+        db.add(Notification(user_id=agent.id, ticket_id=ticket.id, message=f"Ticket #{ticket.id} has been assigned to you."))
     db.commit()
     db.refresh(ticket)
     return ticket
@@ -129,7 +133,7 @@ def update_status(
     ticket_id: int,
     body: TicketStatusUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles(Role.AGENT, Role.ADMIN)),
+    user: User = Depends(require_roles(Role.AGENT, Role.MANAGER, Role.ADMIN)),
 ):
     ticket = db.get(Ticket, ticket_id)
     if ticket is None or not can_view(user, ticket):
@@ -139,8 +143,14 @@ def update_status(
             status.HTTP_409_CONFLICT,
             f"Cannot change status from '{ticket.status.value}' to '{body.status.value}'",
         )
+    previous_status = ticket.status
     ticket.status = body.status
     ticket.resolved_at = datetime.now(timezone.utc) if body.status == Status.RESOLVED else None
+    ticket.updated_at = datetime.now(timezone.utc)
+    db.add(TicketHistory(ticket_id=ticket.id, actor_id=user.id, action="status_changed",
+                         details=f"{previous_status.value} -> {body.status.value}"))
+    db.add(Notification(user_id=ticket.created_by_id, ticket_id=ticket.id,
+                        message=f"Ticket #{ticket.id} status changed to {body.status.value}."))
     db.commit()
     db.refresh(ticket)
     return ticket
