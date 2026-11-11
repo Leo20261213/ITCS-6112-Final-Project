@@ -1,4 +1,4 @@
-"""ORM models for Sprint 1: users with roles, ticket categories, and tickets (US-01..US-07)."""
+"""ORM models for Sprint 1-3: accounts, tickets, collaboration, audit, and AI settings."""
 import enum
 from datetime import datetime, timezone
 
@@ -15,6 +15,7 @@ def utcnow() -> datetime:
 class Role(str, enum.Enum):
     END_USER = "end_user"
     AGENT = "agent"
+    MANAGER = "manager"
     ADMIN = "admin"
 
 
@@ -73,3 +74,72 @@ class Ticket(Base):
     category: Mapped[Category] = relationship()
     created_by: Mapped[User] = relationship(foreign_keys=[created_by_id])
     assigned_to: Mapped[User | None] = relationship(foreign_keys=[assigned_to_id])
+
+
+class Comment(Base):
+    __tablename__ = "comments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ticket_id: Mapped[int] = mapped_column(ForeignKey("tickets.id"), index=True)
+    author_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    ticket: Mapped[Ticket] = relationship()
+    author: Mapped[User] = relationship()
+
+
+class TicketHistory(Base):
+    __tablename__ = "ticket_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ticket_id: Mapped[int] = mapped_column(ForeignKey("tickets.id"), index=True)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    action: Mapped[str] = mapped_column(String(100))
+    details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    ticket: Mapped[Ticket] = relationship()
+    actor: Mapped[User | None] = relationship()
+
+
+class Attachment(Base):
+    __tablename__ = "attachments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ticket_id: Mapped[int] = mapped_column(ForeignKey("tickets.id"), index=True)
+    uploader_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    original_name: Mapped[str] = mapped_column(String(255))
+    stored_name: Mapped[str] = mapped_column(String(255), unique=True)
+    content_type: Mapped[str] = mapped_column(String(150), default="application/octet-stream")
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    ticket: Mapped[Ticket] = relationship()
+    uploader: Mapped[User] = relationship()
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    ticket_id: Mapped[int | None] = mapped_column(ForeignKey("tickets.id"), nullable=True)
+    message: Mapped[str] = mapped_column(String(500))
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    user: Mapped[User] = relationship()
+    ticket: Mapped[Ticket | None] = relationship()
+
+
+class AIConfiguration(Base):
+    __tablename__ = "ai_configuration"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    provider: Mapped[str] = mapped_column(String(50), default="openai_compatible")
+    model: Mapped[str] = mapped_column(String(150), default="")
+    base_url: Mapped[str] = mapped_column(String(500), default="https://api.openai.com/v1")
+    # API keys are deliberately not stored in this table; configure them via environment secrets.
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
