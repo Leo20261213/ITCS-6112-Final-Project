@@ -123,18 +123,44 @@ def test_attachment_upload_list_and_download(client):
 
 def test_notifications_are_private_and_mark_read(client):
     user = login(client, "user1@helpdesk.local")
-    ticket = get_ticket_for(client, user)
+
+    # Select a ticket assigned specifically to Agent 1.
+    user_tickets = client.get("/api/tickets", headers=user)
+    assert user_tickets.status_code == 200
+
+    ticket = next(
+        t for t in user_tickets.json()
+        if t["assigned_to"]["email"] == "agent1@helpdesk.local"
+    )
+
+    # Log in as the assigned support agent.
     agent = login(client, "agent1@helpdesk.local")
-    client.post(
+
+    # Agent 1 adds a comment to the assigned ticket.
+    comment = client.post(
         f"/api/tickets/{ticket['id']}/comments",
         headers=agent,
         json={"body": "We are investigating this issue."},
     )
+
+    assert comment.status_code == 201, comment.text
+
+    # Verify the end user receives a notification.
     notifications = client.get("/api/notifications", headers=user)
-    assert notifications.status_code == 200 and notifications.json()
+
+    assert notifications.status_code == 200
+    assert notifications.json()
+
     notification_id = notifications.json()[0]["id"]
-    marked = client.patch(f"/api/notifications/{notification_id}/read", headers=user)
-    assert marked.status_code == 200 and marked.json()["is_read"] is True
+
+    # Mark the notification as read.
+    marked = client.patch(
+        f"/api/notifications/{notification_id}/read",
+        headers=user,
+    )
+
+    assert marked.status_code == 200
+    assert marked.json()["is_read"] is True
 
 
 def test_ai_assistance_uses_safe_local_fallback_when_not_configured(client):
