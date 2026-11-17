@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { labels } from "../api";
 import { useAuth } from "../auth";
+import NotificationBell from "./NotificationBell";
 
 const NAV = {
   end_user: [
@@ -8,6 +9,7 @@ const NAV = {
     ["/tickets/new", "Submit a ticket"],
   ],
   agent: [["/queue", "My queue"]],
+  manager: [["/manage", "Assignment board"]],
   admin: [["/admin", "Administration"]],
 };
 
@@ -29,6 +31,7 @@ export default function Layout() {
           ))}
         </nav>
         <div className="who">
+          <NotificationBell />
           <span>
             {user.full_name} <span className="role-tag">{labels[user.role]}</span>
           </span>

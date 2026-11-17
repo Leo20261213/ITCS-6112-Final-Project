@@ -4,8 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..activity import record
 from ..database import get_db
-from ..models import Category, Role, Ticket, User
+from ..models import Category, EventKind, Role, Ticket, User
 from ..schemas import CategoryIn, CategoryOut, UserAdminUpdate, UserOut
 from ..security import require_roles
 
@@ -29,7 +30,9 @@ def update_user(user_id: int, body: UserAdminUpdate, db: Session = Depends(get_d
         if user.role == Role.AGENT and body.role != Role.AGENT:
             # Release this agent's tickets so they are not stranded with a non-agent.
             for t in db.scalars(select(Ticket).where(Ticket.assigned_to_id == user.id)):
-                t.assigned_to_id = None
+                t.assigned_to = None
+                record(db, t, admin, EventKind.ASSIGNED,
+                       f"Unassigned from {user.full_name} (no longer a support agent)", notify=[t.created_by])
         user.role = body.role
     if body.is_active is not None:
         user.is_active = body.is_active

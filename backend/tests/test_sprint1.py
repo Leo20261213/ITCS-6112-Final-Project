@@ -1,29 +1,6 @@
 """Acceptance tests for Sprint 1 user stories US-01..US-07."""
-import os
-
-os.environ["DATABASE_URL"] = "sqlite:///./test_helpdesk.db"
-os.environ["SECRET_KEY"] = "test-secret"
-
-import pytest
-from fastapi.testclient import TestClient
-
-from app.database import Base, engine
-from app.main import app
 from app.seed import DEMO_PASSWORD
-
-
-@pytest.fixture()
-def client():
-    Base.metadata.drop_all(bind=engine)
-    with TestClient(app) as c:  # lifespan creates tables and seeds demo data
-        yield c
-    Base.metadata.drop_all(bind=engine)
-
-
-def login(client, email, password=DEMO_PASSWORD):
-    r = client.post("/api/auth/login", data={"username": email, "password": password})
-    assert r.status_code == 200, r.text
-    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+from conftest import login
 
 
 # US-01 -----------------------------------------------------------------
@@ -140,7 +117,8 @@ def test_agent_updates_status_and_user_sees_it(client):
 def test_invalid_transition_rejected(client):
     ha = login(client, "agent2@helpdesk.local")
     t = next(t for t in client.get("/api/tickets", headers=ha).json() if t["status"] == "resolved")
-    assert client.patch(f"/api/tickets/{t['id']}/status", headers=ha, json={"status": "open"}).status_code == 409
+    # Resolved -> Open is the US-11 reopen action (Sprint 2); Resolved -> On hold is still invalid.
+    assert client.patch(f"/api/tickets/{t['id']}/status", headers=ha, json={"status": "on_hold"}).status_code == 409
 
 
 def test_agent_cannot_update_unassigned_ticket_and_user_cannot_update(client):

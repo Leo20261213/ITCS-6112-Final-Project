@@ -3,12 +3,21 @@ import { Link } from "react-router-dom";
 import { api, fmtDate, labels } from "../api";
 import { PriorityBadge, StatusBadge } from "./Badges";
 
-/** Shared list with category/priority/status filters (US-05). The server scopes rows by role. */
-export default function TicketTable({ showRequester = false, showAssignee = false, emptyText, reloadKey = 0 }) {
+/** Shared list with category/priority/status filters (US-05). The server scopes rows by role.
+ *  `agents` adds an assignee filter and `actions` adds a per-row action column (US-08). */
+export default function TicketTable({
+  showRequester = false,
+  showAssignee = false,
+  emptyText,
+  reloadKey = 0,
+  agents = null,
+  actions = null,
+  actionsHeader = "",
+}) {
   const [tickets, setTickets] = useState(null);
   const [meta, setMeta] = useState(null);
   const [categories, setCategories] = useState([]);
-  const [filters, setFilters] = useState({ status: "", priority: "", category_id: "" });
+  const [filters, setFilters] = useState({ status: "", priority: "", category_id: "", assignee: "" });
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -17,7 +26,11 @@ export default function TicketTable({ showRequester = false, showAssignee = fals
   }, []);
 
   useEffect(() => {
-    const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v)).toString();
+    const { assignee, ...rest } = filters;
+    const params = Object.entries(rest).filter(([, v]) => v);
+    if (assignee === "none") params.push(["unassigned", "true"]);
+    else if (assignee) params.push(["assigned_to", assignee]);
+    const qs = new URLSearchParams(params).toString();
     api(`/tickets${qs ? `?${qs}` : ""}`)
       .then((t) => {
         setTickets(t);
@@ -43,6 +56,13 @@ export default function TicketTable({ showRequester = false, showAssignee = fals
           <option value="">All categories</option>
           {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
+        {agents && (
+          <select value={filters.assignee} onChange={set("assignee")} aria-label="Filter by assignee">
+            <option value="">All assignees</option>
+            <option value="none">Unassigned</option>
+            {agents.map((a) => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+          </select>
+        )}
         {tickets && <span className="muted count">{tickets.length} ticket{tickets.length === 1 ? "" : "s"}</span>}
       </div>
       {error && <div className="alert error">{error}</div>}
@@ -63,6 +83,7 @@ export default function TicketTable({ showRequester = false, showAssignee = fals
                 {showRequester && <th>Requester</th>}
                 {showAssignee && <th>Assigned to</th>}
                 <th>Updated</th>
+                {actions && <th>{actionsHeader}</th>}
               </tr>
             </thead>
             <tbody>
@@ -76,6 +97,7 @@ export default function TicketTable({ showRequester = false, showAssignee = fals
                   {showRequester && <td>{t.created_by.full_name}</td>}
                   {showAssignee && <td>{t.assigned_to?.full_name ?? <span className="muted">Unassigned</span>}</td>}
                   <td className="muted nowrap">{fmtDate(t.updated_at)}</td>
+                  {actions && <td>{actions(t)}</td>}
                 </tr>
               ))}
             </tbody>

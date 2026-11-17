@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import Base, SessionLocal, engine
-from .routers import admin, auth, tickets
+from .routers import admin, attachments, auth, conversation, notifications, tickets
 from .seed import seed
 
 
@@ -18,7 +18,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Neural Support Solutions Help Desk", version="0.1.0 (Sprint 1)", lifespan=lifespan)
+app = FastAPI(title="Neural Support Solutions Help Desk", version="0.2.0 (Sprint 2)", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,6 +30,9 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(tickets.router)
+app.include_router(conversation.router)
+app.include_router(attachments.router)
+app.include_router(notifications.router)
 app.include_router(admin.router)
 
 

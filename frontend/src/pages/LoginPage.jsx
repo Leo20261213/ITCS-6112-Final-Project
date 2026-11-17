@@ -5,6 +5,7 @@ import { homeFor, useAuth } from "../auth";
 const DEMO = [
   ["End user", "user1@helpdesk.local"],
   ["Support agent", "agent1@helpdesk.local"],
+  ["Manager", "manager@helpdesk.local"],
   ["Administrator", "admin@helpdesk.local"],
 ];
 

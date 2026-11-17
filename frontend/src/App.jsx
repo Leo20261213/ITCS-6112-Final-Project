@@ -8,6 +8,7 @@ import NewTicketPage from "./pages/NewTicketPage";
 import TicketDetailPage from "./pages/TicketDetailPage";
 import AgentQueuePage from "./pages/AgentQueuePage";
 import AdminPage from "./pages/AdminPage";
+import ManagerPage from "./pages/ManagerPage";
 
 // US-02: client-side guard mirrors the server's role checks so users only see features they may use.
 function RequireRole({ roles, children }) {
@@ -34,6 +35,7 @@ export default function App() {
         <Route path="/tickets/new" element={<RequireRole roles={["end_user"]}><NewTicketPage /></RequireRole>} />
         <Route path="/tickets/:id" element={<TicketDetailPage />} />
         <Route path="/queue" element={<RequireRole roles={["agent"]}><AgentQueuePage /></RequireRole>} />
+        <Route path="/manage" element={<RequireRole roles={["manager"]}><ManagerPage /></RequireRole>} />
         <Route path="/admin" element={<RequireRole roles={["admin"]}><AdminPage /></RequireRole>} />
         <Route
           path="/forbidden"

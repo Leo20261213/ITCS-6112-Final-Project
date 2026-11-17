@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { api, labels } from "../api";
+import { api, labels, ROLES } from "../api";
 import { useAuth } from "../auth";
-import TicketTable from "../components/TicketTable";
+import AssignmentBoard from "../components/AssignmentBoard";
 
 // US-02: role-based access management; US-05: category management
 export default function AdminPage() {
@@ -23,7 +23,7 @@ export default function AdminPage() {
       </div>
       {tab === "users" && <UsersPanel />}
       {tab === "categories" && <CategoriesPanel />}
-      {tab === "tickets" && <TicketTable showRequester showAssignee emptyText="No tickets match." />}
+      {tab === "tickets" && <AssignmentBoard />}
     </>
   );
 }
@@ -64,7 +64,7 @@ function UsersPanel() {
                   <td>{u.email}</td>
                   <td>
                     <select value={u.role} disabled={self} onChange={(e) => patch(u.id, { role: e.target.value })} aria-label={`Role for ${u.full_name}`}>
-                      {["end_user", "agent", "admin"].map((r) => <option key={r} value={r}>{labels[r]}</option>)}
+                      {ROLES.map((r) => <option key={r} value={r}>{labels[r]}</option>)}
                     </select>
                   </td>
                   <td>{u.is_active ? <span className="badge status-resolved">Active</span> : <span className="badge neutral">Deactivated</span>}</td>
