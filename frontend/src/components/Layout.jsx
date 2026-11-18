@@ -7,9 +7,13 @@ const NAV = {
   end_user: [
     ["/tickets", "My tickets"],
     ["/tickets/new", "Submit a ticket"],
+    ["/help", "Help assistant"],
   ],
   agent: [["/queue", "My queue"]],
-  manager: [["/manage", "Assignment board"]],
+  manager: [
+    ["/manage", "Assignment board"],
+    ["/analytics", "Analytics"],
+  ],
   admin: [["/admin", "Administration"]],
 };
 

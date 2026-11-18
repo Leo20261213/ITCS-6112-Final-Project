@@ -162,3 +162,163 @@ class MetaOut(BaseModel):
     status_transitions: dict[Status, list[Status]]
     editable_statuses: list[Status]
     attachment_rules: AttachmentRules
+
+
+# Sprint 3 ---------------------------------------------------------------
+class AiMeta(BaseModel):
+    """Who generated an AI result, so the UI can label it (US-21 transparency)."""
+
+    source: str  # claude | local
+    model: str | None
+    notice: str | None = None
+
+
+class CategorySuggestion(BaseModel):
+    id: int
+    name: str
+    confidence: float
+    reason: str
+    matches_current: bool
+
+
+class PrioritySuggestion(BaseModel):
+    value: Priority
+    confidence: float
+    reason: str
+    signals: list[str]
+    matches_current: bool
+
+
+class TriageOut(AiMeta):
+    """US-15 and US-16: suggestions for the agent to review; nothing is changed."""
+
+    category: CategorySuggestion | None = None
+    priority: PrioritySuggestion | None = None
+
+
+class ClassificationUpdate(BaseModel):
+    """Staff apply a category and/or priority (e.g. accepting an AI suggestion)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    category_id: int | None = None
+    priority: Priority | None = None
+    ai_assisted: bool = False
+
+
+class SummaryOut(AiMeta):
+    summary: str
+    key_points: list[str]
+    next_step: str
+    message_count: int
+
+
+class ReplyRequest(BaseModel):
+    instructions: str = Field(default="", max_length=300)
+
+
+class ReplyOut(AiMeta):
+    reply: str
+
+
+class ChatTurn(BaseModel):
+    role: str = Field(pattern="^(user|assistant)$")
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class ChatRequest(BaseModel):
+    messages: list[ChatTurn] = Field(min_length=1, max_length=20)
+
+
+class ArticleRef(BaseModel):
+    id: int
+    title: str
+
+
+class TicketDraft(BaseModel):
+    title: str
+    description: str
+    category_id: int | None
+
+
+class ChatOut(AiMeta):
+    answer: str
+    confident: bool
+    escalate: bool
+    sources: list[ArticleRef]
+    ticket_suggestion: TicketDraft | None
+
+
+class ArticleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    body: str
+
+
+class AiFeatures(BaseModel):
+    enabled: bool
+    category: bool
+    priority: bool
+    summary: bool
+    reply: bool
+    chatbot: bool
+
+
+class AiSettingsOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    enabled: bool
+    provider: str
+    model: str
+    category_suggestions: bool
+    priority_suggestions: bool
+    summaries: bool
+    reply_suggestions: bool
+    chatbot: bool
+    share_personal_data: bool
+    reply_guidance: str
+    updated_at: datetime | None
+    updated_by: UserBrief | None
+
+
+class AiSettingsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool | None = None
+    provider: str | None = Field(default=None, pattern="^(auto|claude|local)$")
+    model: str | None = None
+    category_suggestions: bool | None = None
+    priority_suggestions: bool | None = None
+    summaries: bool | None = None
+    reply_suggestions: bool | None = None
+    chatbot: bool | None = None
+    share_personal_data: bool | None = None
+    reply_guidance: str | None = Field(default=None, max_length=500)
+
+
+class AiAdminOut(BaseModel):
+    settings: AiSettingsOut
+    models: dict[str, str]
+    claude_credentials_detected: bool
+
+
+class AiUsageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    feature: str
+    user: UserBrief
+    ticket_id: int | None
+    source: str
+    model: str | None
+    outcome: str
+    note: str
+    latency_ms: int
+    created_at: datetime
+
+
+class AiUsageReport(BaseModel):
+    totals: dict[str, int]
+    items: list[AiUsageOut]

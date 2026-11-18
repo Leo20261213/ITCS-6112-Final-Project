@@ -2,20 +2,22 @@ import { useEffect, useState } from "react";
 import { api, labels, ROLES } from "../api";
 import { useAuth } from "../auth";
 import AssignmentBoard from "../components/AssignmentBoard";
+import AnalyticsDashboard from "../components/AnalyticsDashboard";
+import AiSettingsPanel from "../components/AiSettingsPanel";
 
 // US-02: role-based access management; US-05: category management
 export default function AdminPage() {
-  const [tab, setTab] = useState("users");
+  const [tab, setTab] = useState("analytics");
   return (
     <>
       <div className="page-head">
         <div>
           <h1>Administration</h1>
-          <p className="muted">Manage who can access which features, and how tickets are organized.</p>
+          <p className="muted">Monitor support performance, manage access and categories, and configure AI assistance.</p>
         </div>
       </div>
       <div className="tabs" role="tablist">
-        {[["users", "Users & roles"], ["categories", "Categories"], ["tickets", "All tickets"]].map(([k, l]) => (
+        {[["analytics", "Analytics"], ["users", "Users & roles"], ["categories", "Categories"], ["tickets", "All tickets"], ["ai", "AI settings"]].map(([k, l]) => (
           <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>
             {l}
           </button>
@@ -24,6 +26,8 @@ export default function AdminPage() {
       {tab === "users" && <UsersPanel />}
       {tab === "categories" && <CategoriesPanel />}
       {tab === "tickets" && <AssignmentBoard />}
+      {tab === "analytics" && <AnalyticsDashboard />}
+      {tab === "ai" && <AiSettingsPanel />}
     </>
   );
 }

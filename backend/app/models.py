@@ -2,6 +2,7 @@
 
 Sprint 1 (US-01..US-07): users with roles, ticket categories, and tickets.
 Sprint 2 (US-08..US-14): messages, history events, attachments, and notifications.
+Sprint 3 (US-15..US-21): AI settings, AI usage log, and the help articles the chatbot answers from.
 """
 import enum
 from datetime import datetime, timezone
@@ -150,3 +151,55 @@ class Notification(Base):
     message: Mapped[str] = mapped_column(String(500))
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AiSettings(Base):
+    """US-21: administrator-controlled AI configuration. A single row (id = 1)."""
+
+    __tablename__ = "ai_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    provider: Mapped[str] = mapped_column(String(20), default="auto")  # auto | claude | local
+    model: Mapped[str] = mapped_column(String(64), default="claude-opus-5-5")
+    category_suggestions: Mapped[bool] = mapped_column(Boolean, default=True)  # US-15
+    priority_suggestions: Mapped[bool] = mapped_column(Boolean, default=True)  # US-16
+    summaries: Mapped[bool] = mapped_column(Boolean, default=True)  # US-17
+    reply_suggestions: Mapped[bool] = mapped_column(Boolean, default=True)  # US-18
+    chatbot: Mapped[bool] = mapped_column(Boolean, default=True)  # US-19
+    share_personal_data: Mapped[bool] = mapped_column(Boolean, default=False)
+    reply_guidance: Mapped[str] = mapped_column(String(500), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+    updated_by: Mapped[User | None] = relationship()
+
+
+class AiUsage(Base):
+    """US-21: an audit record of each AI request. Stores metadata only, never ticket content."""
+
+    __tablename__ = "ai_usage"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    feature: Mapped[str] = mapped_column(String(32))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    ticket_id: Mapped[int | None] = mapped_column(ForeignKey("tickets.id", ondelete="SET NULL"), nullable=True)
+    source: Mapped[str] = mapped_column(String(16))  # claude | local
+    model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    outcome: Mapped[str] = mapped_column(String(16))  # ok | fallback | error
+    note: Mapped[str] = mapped_column(String(255), default="")
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    user: Mapped[User] = relationship()
+
+
+class HelpArticle(Base):
+    """US-19: approved help information the chatbot is allowed to answer from."""
+
+    __tablename__ = "help_articles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(Text)
+    keywords: Mapped[str] = mapped_column(String(500), default="")

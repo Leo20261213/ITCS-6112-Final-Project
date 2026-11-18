@@ -2,8 +2,12 @@
 import os
 import tempfile
 
-os.environ["DATABASE_URL"] = "sqlite:///./test_helpdesk.db"
+# SQLite by default; set TEST_DATABASE_URL to run the suite against PostgreSQL, e.g.
+# postgresql://helpdesk:helpdesk@localhost:5433/helpdesk_test (created by the db image).
+os.environ["DATABASE_URL"] = os.getenv("TEST_DATABASE_URL", "sqlite:///./test_helpdesk.db")
 os.environ["SECRET_KEY"] = "test-secret"
+os.environ["SEED_DEMO_HISTORY"] = "0"  # keep the four known sample tickets
+os.environ["AI_PROVIDER"] = "local"  # tests never call the real Claude API
 os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="helpdesk-test-uploads-")
 
 import pytest

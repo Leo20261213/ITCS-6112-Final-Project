@@ -1,13 +1,19 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { api, labels } from "../api";
 
 // US-03: submit a support ticket (with US-05 category + priority)
 export default function NewTicketPage() {
   const navigate = useNavigate();
+  const prefill = useLocation().state?.prefill; // US-19: drafted by the help assistant
   const [categories, setCategories] = useState([]);
   const [priorities, setPriorities] = useState([]);
-  const [form, setForm] = useState({ title: "", description: "", category_id: "", priority: "medium" });
+  const [form, setForm] = useState({
+    title: prefill?.title ?? "",
+    description: prefill?.description ?? "",
+    category_id: prefill?.category_id ? String(prefill.category_id) : "",
+    priority: "medium",
+  });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -40,6 +46,7 @@ export default function NewTicketPage() {
         </div>
       </div>
       <form className="card form" onSubmit={submit}>
+        {prefill && <div className="alert info">The help assistant filled this in from your conversation. Check it and add anything that's missing.</div>}
         {error && <div className="alert error">{error}</div>}
         <label>
           Title

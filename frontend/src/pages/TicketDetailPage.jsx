@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { api, fmtDate, labels } from "../api";
 import { useAuth } from "../auth";
+import { useAiFeatures } from "../components/Ai";
+import AiTriagePanel from "../components/AiTriagePanel";
 import { PriorityBadge, StatusBadge } from "../components/Badges";
 import TicketAttachments from "../components/TicketAttachments";
 import TicketConversation from "../components/TicketConversation";
@@ -15,7 +17,7 @@ const BACK = {
 };
 
 // Ticket workspace: details (US-04), status incl. close/reopen (US-07, US-11), assignment (US-08),
-// conversation (US-09), editing (US-10), history (US-12), and attachments (US-13).
+// conversation (US-09), editing (US-10), history (US-12), attachments (US-13), and AI assistance (US-15..US-18).
 export default function TicketDetailPage() {
   const { id } = useParams();
   const { user } = useAuth();
@@ -25,6 +27,7 @@ export default function TicketDetailPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState(location.state?.created ? "Ticket submitted successfully." : "");
   const [historyKey, setHistoryKey] = useState(0);
+  const features = useAiFeatures();
 
   const bumpHistory = useCallback(() => setHistoryKey((k) => k + 1), []);
 
@@ -73,7 +76,7 @@ export default function TicketDetailPage() {
       <div className="detail-grid">
         <div className="stack">
           <DetailsCard ticket={ticket} user={user} meta={meta} onSaved={(t) => applyUpdate(t, "Ticket details updated.")} />
-          <TicketConversation ticket={ticket} me={user} onActivity={bumpHistory} />
+          <TicketConversation ticket={ticket} me={user} onActivity={bumpHistory} features={features} />
           <TicketAttachments ticket={ticket} rules={meta?.attachment_rules} onActivity={bumpHistory} />
           <TicketHistory ticketId={ticket.id} reloadKey={historyKey} />
         </div>
@@ -90,6 +93,9 @@ export default function TicketDetailPage() {
               <StatusPanel ticket={ticket} transitions={meta.status_transitions} onChanged={applyUpdate} onError={setError} />
             )}
             {canAssign && <AssignPanel ticket={ticket} onChanged={applyUpdate} onError={setError} />}
+            {isStaff && features?.enabled && (
+              <AiTriagePanel ticket={ticket} features={features} onChanged={applyUpdate} onError={setError} />
+            )}
           </div>
         </aside>
       </div>

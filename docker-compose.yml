@@ -1,0 +1,20 @@
+# PostgreSQL for the help desk backend.
+#   docker compose up -d db      start (first run builds the image from ./db)
+#   docker compose down          stop (data is kept in the "pgdata" volume)
+#   docker compose down -v       stop and delete all data
+services:
+  db:
+    build: ./db
+    image: helpdesk-postgres:1.0
+    container_name: helpdesk-db
+    environment:
+      # Development default; override in a .env file next to this one or in your shell.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-helpdesk}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:
