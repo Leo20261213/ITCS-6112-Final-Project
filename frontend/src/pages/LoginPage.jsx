@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { homeFor, useAuth } from "../auth";
+import AuthShell from "../components/AuthShell";
 
 const DEMO = [
   ["End user", "user1@helpdesk.local"],
@@ -36,13 +37,12 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="auth-page">
-      <form className="card auth-card" onSubmit={submit}>
-        <div className="brand big">
-          <span className="logo" aria-hidden>◆</span>
-          <span>Neural Support <b>Help Desk</b></span>
+    <AuthShell>
+      <form className="auth-card" onSubmit={submit}>
+        <div>
+          <h1>Sign in</h1>
+          <p className="muted">Use your work email to reach your tickets.</p>
         </div>
-        <h1>Sign in</h1>
         {location.state?.registered && <div className="alert success">Account created. Please sign in.</div>}
         {error && <div className="alert error">{error}</div>}
         <label>
@@ -58,7 +58,7 @@ export default function LoginPage() {
           No account? <Link to="/register">Create one</Link>
         </p>
         <div className="demo">
-          <p className="small muted">Demo accounts (password <code>Password123!</code>)</p>
+          <p className="small muted">Try a demo account. Each one signs in with <code>Password123!</code></p>
           <div className="demo-buttons">
             {DEMO.map(([label, em]) => (
               <button type="button" key={em} className="btn ghost small" onClick={() => { setEmail(em); setPassword("Password123!"); }}>
@@ -68,6 +68,6 @@ export default function LoginPage() {
           </div>
         </div>
       </form>
-    </div>
+    </AuthShell>
   );
 }

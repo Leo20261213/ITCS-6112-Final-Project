@@ -1,33 +1,55 @@
 import { useEffect, useState } from "react";
+import { Navigate, useParams } from "react-router-dom";
 import { api, labels, ROLES } from "../api";
 import { useAuth } from "../auth";
 import AssignmentBoard from "../components/AssignmentBoard";
 import AnalyticsDashboard from "../components/AnalyticsDashboard";
 import AiSettingsPanel from "../components/AiSettingsPanel";
 
-// US-02: role-based access management; US-05: category management
+const SECTIONS = {
+  analytics: {
+    title: "Analytics",
+    intro: "Ticket volume, status, and resolution trends across the help desk.",
+    Panel: AnalyticsDashboard,
+  },
+  tickets: {
+    title: "All tickets",
+    intro: "Every ticket in the system, with each agent's current workload. Reassign from the last column.",
+    Panel: AssignmentBoard,
+  },
+  users: {
+    title: "Users & roles",
+    intro: "Change what each person can do, or deactivate accounts that should no longer sign in.",
+    Panel: UsersPanel,
+  },
+  categories: {
+    title: "Categories",
+    intro: "The categories people choose from when they submit a ticket.",
+    Panel: CategoriesPanel,
+  },
+  ai: {
+    title: "AI settings",
+    intro: "Choose which AI features are on, which model they use, and what ticket data leaves the help desk.",
+    Panel: AiSettingsPanel,
+  },
+};
+
+// US-02 role management, US-05 categories, US-08 assignment, US-20 analytics, US-21 AI settings.
+// Each section has its own address so it can be reached from the sidebar and bookmarked.
 export default function AdminPage() {
-  const [tab, setTab] = useState("analytics");
+  const { section } = useParams();
+  const current = SECTIONS[section];
+  if (!current) return <Navigate to="/admin/analytics" replace />;
+  const { title, intro, Panel } = current;
   return (
     <>
       <div className="page-head">
         <div>
-          <h1>Administration</h1>
-          <p className="muted">Monitor support performance, manage access and categories, and configure AI assistance.</p>
+          <h1>{title}</h1>
+          <p className="muted">{intro}</p>
         </div>
       </div>
-      <div className="tabs" role="tablist">
-        {[["analytics", "Analytics"], ["users", "Users & roles"], ["categories", "Categories"], ["tickets", "All tickets"], ["ai", "AI settings"]].map(([k, l]) => (
-          <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>
-            {l}
-          </button>
-        ))}
-      </div>
-      {tab === "users" && <UsersPanel />}
-      {tab === "categories" && <CategoriesPanel />}
-      {tab === "tickets" && <AssignmentBoard />}
-      {tab === "analytics" && <AnalyticsDashboard />}
-      {tab === "ai" && <AiSettingsPanel />}
+      <Panel />
     </>
   );
 }

@@ -7,7 +7,7 @@ Sprint 3 (US-15..US-21): AI settings, AI usage log, and the help articles the ch
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -161,12 +161,14 @@ class AiSettings(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     provider: Mapped[str] = mapped_column(String(20), default="auto")  # auto | claude | local
-    model: Mapped[str] = mapped_column(String(64), default="claude-opus-5-5")
+    model: Mapped[str] = mapped_column(String(64), default="claude-haiku-5-5")
     category_suggestions: Mapped[bool] = mapped_column(Boolean, default=True)  # US-15
     priority_suggestions: Mapped[bool] = mapped_column(Boolean, default=True)  # US-16
     summaries: Mapped[bool] = mapped_column(Boolean, default=True)  # US-17
     reply_suggestions: Mapped[bool] = mapped_column(Boolean, default=True)  # US-18
     chatbot: Mapped[bool] = mapped_column(Boolean, default=True)  # US-19
+    # New tickets are categorized, prioritized and routed to an agent by AI as they arrive (US-08, US-15, US-16).
+    auto_triage: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     share_personal_data: Mapped[bool] = mapped_column(Boolean, default=False)
     reply_guidance: Mapped[str] = mapped_column(String(500), default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

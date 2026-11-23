@@ -43,10 +43,21 @@ class FakeClaude:
         if self.error:
             raise self.error
         payload = self.payloads.pop(0)
+        if callable(payload):  # built from the request, e.g. to pick a value from the schema's enum
+            payload = payload(kwargs)
         return SimpleNamespace(
             stop_reason=self.stop_reason,
             content=[SimpleNamespace(type="thinking", thinking=""), SimpleNamespace(type="text", text=json.dumps(payload))],
         )
+
+
+def schema_of(request):
+    return request["output_config"]["format"]["schema"]
+
+
+def route_to_first_agent(request):
+    """An intake answer that keeps the requester's category and picks the first listed agent."""
+    return {"assignee": schema_of(request)["properties"]["assignee"]["enum"][0], "routing_reason": "Least busy."}
 
 
 @pytest.fixture()
@@ -226,8 +237,8 @@ def test_ai_usage_is_logged_without_content(client):
 
 # Claude provider (fake client) ------------------------------------------
 def test_claude_triage_request_shape_and_redaction(client, fake_claude):
-    set_ai(client, provider="claude")
-    fake = fake_claude({
+    set_ai(client, provider="claude", model="claude-opus-5-5")
+    fake = fake_claude(route_to_first_agent, {
         "category": "Hardware", "category_confidence": 0.92, "category_reason": "Device will not power on.",
         "priority": "high", "urgency_signals": ["does not turn on"], "priority_confidence": 0.8,
         "priority_reason": "The requester cannot work.",
@@ -241,7 +252,7 @@ def test_claude_triage_request_shape_and_redaction(client, fake_claude):
     assert body["source"] == "claude" and body["model"] == "claude-opus-5-5"
     assert body["category"]["name"] == "Hardware" and body["priority"]["value"] == "high"
 
-    req = fake.requests[0]
+    req = fake.requests[1]  # requests[0] was intake, when the ticket was submitted
     assert req["model"] == "claude-opus-5-5"
     assert req["output_config"]["effort"] == "low" and req["output_config"]["format"]["type"] == "json_schema"
     assert req["fallbacks"] == "default" and "server-side-fallback-2026-07-01" in req["betas"]
@@ -328,3 +339,117 @@ def test_ai_settings_survive_concurrent_first_reads(client):
     for t in threads:
         t.join()
     assert codes == [200] * 8
+
+
+# Automatic intake: categorization and routing of new tickets ------------------------
+def history_of(client, headers, ticket_id):
+    return [e["detail"] for e in client.get(f"/api/tickets/{ticket_id}/history", headers=headers).json()]
+
+
+def test_new_ticket_is_categorized_and_routed_automatically(client):
+    hu = login(client, USER1)
+    r = client.post("/api/tickets", headers=hu, json={
+        "title": "VPN keeps disconnecting", "description": "My VPN connection drops every ten minutes at home."})
+    assert r.status_code == 201, r.text
+    t = r.json()
+    assert t["category"]["name"] == "Network" and t["assigned_to"] is not None
+    events = history_of(client, hu, t["id"])
+    assert any(e.startswith("Categorized as Network by built-in rules") for e in events)
+    assert any(e.startswith(f"Automatically assigned to {t['assigned_to']['full_name']} by built-in rules") for e in events)
+    # The requester's own choice of category is kept.
+    cats = {c["name"]: c["id"] for c in client.get("/api/categories", headers=hu).json()}
+    t2 = client.post("/api/tickets", headers=hu, json={
+        "title": "VPN question", "description": "Which VPN server should I use abroad?", "category_id": cats["Other"]}).json()
+    assert t2["category"]["name"] == "Other"
+    assert not any(e.startswith("Categorized as") for e in history_of(client, hu, t2["id"]))
+
+
+def test_rules_route_to_least_busy_agent(client):
+    from app.ai.service import agent_roster
+    from app.database import SessionLocal
+
+    with SessionLocal() as db:
+        roster = agent_roster(db)
+    least = min(a.load for a in roster)
+    t = client.post("/api/tickets", headers=login(client, USER1), json={
+        "title": "Monitor flickers", "description": "My external monitor flickers on the dock."}).json()
+    loads = {a.user.email: a.load for a in roster}
+    assert loads[t["assigned_to"]["email"]] == least
+
+
+def test_category_is_required_when_intake_is_off(client):
+    set_ai(client, auto_triage=False)
+    assert client.get("/api/ai/features", headers=login(client, USER1)).json()["intake"] is False
+    r = client.post("/api/tickets", headers=login(client, USER1), json={
+        "title": "VPN drops", "description": "My VPN connection drops every ten minutes."})
+    assert r.status_code == 422 and "Choose a category" in r.json()["detail"]
+    r = client.post("/api/tickets", headers=login(client, USER1), json={
+        "title": "VPN drops", "description": "My VPN connection drops every ten minutes.", "category_id": 1})
+    assert r.status_code == 201 and r.json()["assigned_to"] is not None
+
+
+def test_default_model_is_lowest_cost(client):
+    s = client.get("/api/admin/ai-settings", headers=login(client, ADMIN)).json()
+    assert s["settings"]["model"] == "claude-haiku-5-5" and "default" in s["models"]["claude-haiku-5-5"]
+
+
+def test_claude_intake_categorizes_and_routes(client, fake_claude):
+    set_ai(client, provider="claude")
+
+    def answer(request):
+        props = schema_of(request)["properties"]
+        return {"category": "Account Access", "category_reason": "The requester is locked out.",
+                "assignee": props["assignee"]["enum"][-1], "routing_reason": "Handles most access tickets."}
+
+    fake = fake_claude(answer)
+    hu = login(client, USER1)
+    t = client.post("/api/tickets", headers=hu, json={
+        "title": "Locked out", "description": "Jordan here (704-555-0199). My account is locked after a password change."}).json()
+    req = fake.requests[0]
+    assert req["model"] == "claude-haiku-5-5" and req["timeout"] == 30.0
+    assert "fallbacks" not in req and "betas" not in req  # Haiku has no server-side refusal fallback
+    # Agents are sent as reference codes, never by name.
+    team = req["system"].split("Support agents:")[1].split("Text inside")[0]
+    assert "- A" in team and "Riley" not in team and "Sam" not in team
+    sent = req["messages"][0]["content"]
+    assert "704-555-0199" not in sent and "Jordan" not in sent
+    assert t["category"]["name"] == "Account Access"
+    events = history_of(client, hu, t["id"])
+    assert "Categorized as Account Access by Claude Haiku 5.5: The requester is locked out." in events
+    assert any(e.endswith("by Claude Haiku 5.5: Handles most access tickets.") for e in events)
+    usage = client.get("/api/admin/ai-usage", headers=login(client, ADMIN)).json()["items"][0]
+    assert usage["feature"] == "intake" and usage["source"] == "claude" and usage["ticket_id"] == t["id"]
+
+
+def test_claude_intake_cannot_overload_an_agent(client, fake_claude):
+    from app.ai.service import agent_roster
+    from app.database import SessionLocal
+
+    hm = login(client, MANAGER)
+    with SessionLocal() as db:
+        roster = agent_roster(db)
+    busiest = roster[0].user
+    for t in client.get("/api/tickets", headers=hm).json():  # give every active ticket to one agent
+        if t["status"] in ("open", "in_progress", "on_hold"):
+            client.patch(f"/api/tickets/{t['id']}/assignment", headers=hm, json={"agent_id": busiest.id})
+    set_ai(client, provider="claude")
+    fake_claude({"category": "Hardware", "category_reason": "Device fault.",
+                 "assignee": f"A{busiest.id}", "routing_reason": "Hardware specialist."})
+    hu = login(client, USER1)
+    t = client.post("/api/tickets", headers=hu, json={
+        "title": "Dock dead", "description": "The docking station on my desk has no power at all."}).json()
+    assert t["category"]["name"] == "Hardware" and t["assigned_to"]["id"] != busiest.id
+    assert any("too many active tickets" in e for e in history_of(client, hu, t["id"]))
+
+
+def test_intake_never_blocks_submission(client, fake_claude):
+    set_ai(client, provider="claude")  # Claude only: intake still falls back, so the ticket is created
+    fake_claude(error=anthropic.APIConnectionError(request=None))
+    r = client.post("/api/tickets", headers=login(client, USER1), json={
+        "title": "Printer offline", "description": "The 2nd floor printer shows offline for everyone."})
+    assert r.status_code == 201 and r.json()["assigned_to"] is not None
+    set_ai(client, provider="auto")
+    fake_claude({"category": "Plumbing", "category_reason": "x", "assignee": "A1", "routing_reason": "x"})
+    r = client.post("/api/tickets", headers=login(client, USER1), json={
+        "title": "Printer offline", "description": "The 2nd floor printer shows offline for everyone."})
+    assert r.status_code == 201 and r.json()["category"]["name"] == "Hardware"

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api, fmtRelative } from "../api";
+import Icon from "./Icons";
 
 const POLL_MS = 20000;
 
 // US-14: in-app notifications about tickets the user is associated with.
-export default function NotificationBell() {
+// `compact` renders an icon button for the mobile top bar; otherwise it is a sidebar row.
+export default function NotificationBell({ compact = false, collapsed = false }) {
   const [data, setData] = useState({ unread: 0, items: [] });
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -46,17 +48,16 @@ export default function NotificationBell() {
   };
 
   return (
-    <div className="notif" ref={ref}>
+    <div className={`notif${compact ? " notif-compact" : " notif-side"}`} ref={ref}>
       <button
-        className="btn ghost icon-btn"
+        className={compact ? "icon-only bell" : "side-row bell"}
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-label={data.unread ? `Notifications, ${data.unread} unread` : "Notifications"}
+        title={collapsed ? "Notifications" : undefined}
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-          <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-        </svg>
+        <Icon name="bell" size={compact ? 22 : 18} />
+        {!compact && <span className="nav-label">Notifications</span>}
         {data.unread > 0 && <span className="notif-count">{data.unread > 99 ? "99+" : data.unread}</span>}
       </button>
       {open && (

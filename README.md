@@ -39,7 +39,7 @@ This is our collaboration for our final project in Software Systems Design and I
 | US-20 | Analytics dashboard | `GET /api/analytics?days=7/30/90` (`routers/analytics.py`) · `AnalyticsDashboard.jsx` (admin Analytics tab, manager Analytics page) |
 | US-21 | Administrators configure AI | `GET/PUT /api/admin/ai-settings`, `GET /api/admin/ai-usage` · `AiSettingsPanel.jsx` (admin AI settings tab) |
 
-**How the AI works.** AI features call Claude (`claude-opus-5-5` by default) through the official `anthropic` Python SDK, using structured JSON output so every answer is validated before it is shown. To enable Claude, set `ANTHROPIC_API_KEY` in the backend's environment before starting it. Without credentials, or if Claude fails, the app uses built-in keyword rules instead, so every feature still works offline. Every result is labelled with what produced it.
+**How the AI works.** AI features call Claude (`claude-haiku-5-5` by default, the lowest-cost model; administrators can switch to Sonnet 5.5 or Opus 5.5 under AI settings) through the official `anthropic` Python SDK, using structured JSON output so every answer is validated before it is shown. To enable Claude, set `ANTHROPIC_API_KEY` in `backend/.env` (or the environment) before starting the backend, then confirm it works with `python -m scripts.check_claude` from `backend/`, which sends one real request through the app's Claude code and prints the answer. Without credentials, or if Claude fails, the app uses built-in keyword rules instead, so every feature still works offline. Every result is labelled with what produced it.
 
 Responsible-AI controls (US-21):
 - An administrator can turn AI off as a whole or per feature.
@@ -47,14 +47,18 @@ Responsible-AI controls (US-21):
 - The administrator picks the Claude model and can add guidance for reply drafts.
 - By default, names, email addresses and phone numbers are removed before ticket text is sent to Claude.
 - Ticket text is passed to Claude as data, and instructions inside it are ignored.
-- Agents always decide whether to apply a suggestion or send a draft.
+- Agents always decide whether to apply a suggestion or send a draft. The one automatic step is intake (below), and its decisions are recorded with reasons and can be changed by staff.
 - Each AI request is logged (feature, user, provider, outcome, latency; never the content).
 
 Roles: **end user** (submits, tracks, edits and discusses their tickets; uses the help assistant), **support agent** (works their assigned queue, closes and reopens tickets), **manager** (sees every ticket, assigns it to agents, and views analytics), **administrator** (views analytics; manages users, roles, categories and AI settings; can also assign tickets).
 
-New tickets are still routed automatically to the active agent with the fewest active tickets; managers can reassign them from the assignment board. Closed tickets are read-only (no new messages or attachments) until an agent reopens them.
+**Automatic intake (categorization and routing).** Requesters can leave the category as "Choose for me". When a ticket is submitted, `ai/service.py: intake` asks Claude to (1) pick the category, unless the requester chose one, and (2) pick the agent, given each agent's active workload and the categories they have handled in the last 90 days. Agents are sent as reference codes, never names, and the ticket text is redacted as above. The server checks the answer: an unknown category or agent is rejected, and an agent carrying more than 2 active tickets above the least busy is overruled. Both decisions go into the ticket history with Claude's reason ("Categorized as Network by Claude Opus 5.5: …", "Automatically assigned to … by Claude Opus 5.5: …"), and the AI usage log records the request. If Claude is unavailable, or the provider is set to built-in rules, the keyword rules pick the category and the ticket goes to the least busy agent (ties go to the agent with most recent experience in that category), so submission never fails because of AI. Administrators can turn intake off under AI settings; requesters must then choose a category. Managers can reassign any ticket from the assignment board. Closed tickets are read-only (no new messages or attachments) until an agent reopens them.
 
 Attachments are stored on disk in `backend/uploads/` (override with `UPLOAD_DIR`; per-file limit with `ATTACHMENT_MAX_MB`). Allowed types: png, jpg/jpeg, gif, webp, pdf, txt, log, csv, docx, xlsx.
+
+### Interface
+
+The frontend uses a vertical sidebar on the left (`components/Layout.jsx`) that shows only the destinations the signed-in role can use. On desktop it can be collapsed to an icon rail (the choice is remembered per browser); below 860px it becomes a slide-in drawer opened from a top bar. Notifications and the account menu sit at the foot of the sidebar. Administrator sections have their own addresses (`/admin/analytics`, `/admin/tickets`, `/admin/users`, `/admin/categories`, `/admin/ai`), so they can be bookmarked. Styling lives in `src/styles.css` on a small token set (spruce sidebar, teal actions, mint for the current location) with Bricolage Grotesque headings and Instrument Sans text.
 
 ### Running locally
 

@@ -33,4 +33,4 @@ export function AuthProvider({ children }) {
 
 export const useAuth = () => useContext(AuthContext);
 
-export const homeFor = (role) => ({ end_user: "/tickets", agent: "/queue", manager: "/manage", admin: "/admin" })[role] || "/login";
+export const homeFor = (role) => ({ end_user: "/tickets", agent: "/queue", manager: "/manage", admin: "/admin/analytics" })[role] || "/login";

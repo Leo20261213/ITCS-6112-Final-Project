@@ -18,14 +18,15 @@ import os
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..models import AiSettings, AiUsage, Category, HelpArticle, Priority, Role, Ticket, TicketMessage, User
+from ..models import AiSettings, AiUsage, Category, HelpArticle, Priority, Role, Status, Ticket, TicketMessage, User
 from . import claude, local
 
 FEATURES = {
@@ -34,6 +35,7 @@ FEATURES = {
     "summary": "summaries",
     "reply": "reply_suggestions",
     "chatbot": "chatbot",
+    "intake": "auto_triage",
 }
 FEATURE_LABELS = {
     "category": "Category suggestions",
@@ -41,7 +43,9 @@ FEATURE_LABELS = {
     "summary": "Ticket summaries",
     "reply": "Reply drafts",
     "chatbot": "Help chatbot",
+    "intake": "Automatic ticket intake",
 }
+MODEL_NAMES = {"claude-opus-5-5": "Claude Opus 5.5", "claude-sonnet-5-5": "Claude Sonnet 5.5", "claude-haiku-5-5": "Claude Haiku 5.5"}
 PROVIDERS = ("auto", "claude", "local")
 STATUS_LABELS = {"open": "Open", "in_progress": "In progress", "on_hold": "On hold", "resolved": "Resolved", "closed": "Closed"}
 
@@ -236,7 +240,7 @@ def triage(db: Session, user: User, ticket: Ticket) -> AiResult:
             f"from the ticket that drove the priority (empty if none).\n\n{DATA_RULE}"
         )
         data = claude.call_structured(
-            settings, system=system, schema=schema, effort="low", max_tokens=2000,
+            settings, system=system, schema=schema, effort="low", max_tokens=8000,
             messages=[{"role": "user", "content": _ticket_block(ticket, redact, include_meta=False)}],
         )
         cat = by_name.get(str(data["category"]).lower())
@@ -276,6 +280,168 @@ def triage(db: Session, user: User, ticket: Ticket) -> AiResult:
     return result
 
 
+# Automatic intake: category + routing for every new ticket (US-08, US-15) ----------
+ACTIVE_STATUSES = (Status.OPEN, Status.IN_PROGRESS, Status.ON_HOLD)
+EXPERIENCE_DAYS = 90
+# Claude may pick a more experienced agent over the least-busy one, but never one carrying
+# more than this many extra active tickets, so work stays spread across the team.
+MAX_LOAD_GAP = 2
+INTAKE_TIMEOUT_S = 30.0  # the requester is waiting on the submit button
+NO_AGENTS = "No support agents are active, so the ticket is waiting for a manager to assign it."
+
+
+@dataclass
+class AgentInfo:
+    user: User
+    load: int
+    experience: dict[str, int]  # category name -> tickets handled recently
+
+
+@dataclass
+class IntakeDecision:
+    category: Category
+    category_reason: str | None  # None when the requester chose the category themselves
+    agent: User | None
+    routing_reason: str
+    by: str  # who decided, for the ticket history: "Claude Opus 5.5" or "built-in rules"
+    source: str
+    notice: str | None = None
+
+
+def agent_roster(db: Session) -> list[AgentInfo]:
+    """Active agents with their current workload and recent experience per category."""
+    loads = dict(db.execute(
+        select(Ticket.assigned_to_id, func.count(Ticket.id))
+        .where(Ticket.status.in_(ACTIVE_STATUSES), Ticket.assigned_to_id.is_not(None))
+        .group_by(Ticket.assigned_to_id)
+    ).all())
+    since = datetime.now(timezone.utc) - timedelta(days=EXPERIENCE_DAYS)
+    experience: dict[int, dict[str, int]] = {}
+    for agent_id, cat_name, n in db.execute(
+        select(Ticket.assigned_to_id, Category.name, func.count(Ticket.id))
+        .join(Category, Ticket.category_id == Category.id)
+        .where(Ticket.assigned_to_id.is_not(None), Ticket.created_at >= since)
+        .group_by(Ticket.assigned_to_id, Category.name)
+    ).all():
+        experience.setdefault(agent_id, {})[cat_name] = n
+    agents = db.scalars(select(User).where(User.role == Role.AGENT, User.is_active.is_(True)).order_by(User.id))
+    return [AgentInfo(a, loads.get(a.id, 0), experience.get(a.id, {})) for a in agents]
+
+
+def route_by_rules(roster: list[AgentInfo], category: Category) -> tuple[User | None, str]:
+    """Fewest active tickets first; among equally busy agents, the one who has handled the
+    most tickets in this category recently."""
+    if not roster:
+        return None, NO_AGENTS
+    best = min(roster, key=lambda a: (a.load, -a.experience.get(category.name, 0), a.user.id))
+    n = best.experience.get(category.name, 0)
+    reason = f"Fewest active tickets ({best.load})"
+    if n and sum(1 for a in roster if a.load == best.load) > 1:
+        reason += f", and the most recent {category.name} tickets handled ({n})"
+    return best.user, reason + "."
+
+
+def intake(db: Session, user: User, ticket: Ticket, chosen: Category | None) -> IntakeDecision:
+    """Categorize (unless the requester chose a category) and route a new ticket.
+
+    Runs inside ticket submission, so it never fails: if AI is off or Claude can't answer,
+    the built-in rules decide and the ticket is still created and assigned."""
+    settings = get_settings(db)
+    categories = list(db.scalars(select(Category).order_by(Category.name)))
+    by_name = {c.name.lower(): c for c in categories}
+    roster = agent_roster(db)
+    by_ref = {f"A{a.user.id}": a for a in roster}
+    min_load = min((a.load for a in roster), default=0)
+    redact = Redactor(settings, [user])
+
+    def use_local():
+        if chosen is not None:
+            category, reason = chosen, None
+        else:
+            category, _, reason = local.suggest_category(f"{ticket.title}\n{ticket.description}", categories)
+            category = category or categories[0]
+        agent, routing = route_by_rules(roster, category)
+        return {"category": category, "category_reason": reason, "agent": agent, "routing_reason": routing}
+
+    def use_claude():
+        properties: dict[str, Any] = {}
+        required: list[str] = []
+        if chosen is None:
+            properties["category"] = {"type": "string", "enum": [c.name for c in categories]}
+            properties["category_reason"] = {"type": "string"}
+            required += ["category", "category_reason"]
+        if roster:
+            properties["assignee"] = {"type": "string", "enum": list(by_ref)}
+            properties["routing_reason"] = {"type": "string"}
+            required += ["assignee", "routing_reason"]
+        if not properties:
+            return use_local()
+        schema = {"type": "object", "properties": properties, "required": required, "additionalProperties": False}
+
+        category_list = "\n".join(f"- {c.name}: {c.description or 'no description'}" for c in categories)
+        team = "\n".join(
+            f"- {ref}: {a.load} active ticket{'s' if a.load != 1 else ''}; tickets handled in the last "
+            f"{EXPERIENCE_DAYS} days by category: "
+            + (", ".join(f"{k} {v}" for k, v in sorted(a.experience.items())) or "none")
+            for ref, a in by_ref.items()
+        )
+        steps = []
+        if chosen is None:
+            steps.append("Choose the category that best fits the ticket.")
+        else:
+            steps.append(f"The requester already chose the category {chosen.name}; keep it.")
+        if roster:
+            steps.append(
+                "Choose the support agent who should handle it. Balance the workload first: prefer the agent with the "
+                f"fewest active tickets, and only choose a busier agent (at most {MAX_LOAD_GAP} more active tickets "
+                "than the least busy) when their recent experience with this kind of ticket clearly makes them the "
+                "better fit."
+            )
+        system = (
+            "You run intake for an IT help desk: every new ticket passes through you before a person sees it.\n"
+            + "\n".join(steps)
+            + "\nWrite each reason as one short sentence for the support team. Agents are identified only by "
+            f"reference codes.\n\nCategories:\n{category_list}\n\nSupport agents:\n{team or '(none)'}\n\n{DATA_RULE}"
+        )
+        data = claude.call_structured(
+            settings, system=system, schema=schema, effort="low", max_tokens=8000, timeout=INTAKE_TIMEOUT_S,
+            messages=[{"role": "user", "content": _ticket_block(ticket, redact, include_meta=False)}],
+        )
+        if chosen is None:
+            category = by_name.get(str(data.get("category", "")).lower())
+            if category is None:
+                raise claude.ClaudeError("Claude suggested a category outside the allowed options")
+            category_reason = str(data["category_reason"])[:300]
+        else:
+            category, category_reason = chosen, None
+        agent, routing = None, NO_AGENTS
+        if roster:
+            pick = by_ref.get(str(data.get("assignee", "")))
+            if pick is None:
+                raise claude.ClaudeError("Claude chose an agent who is not on the team")
+            if pick.load > min_load + MAX_LOAD_GAP:
+                agent, routing = route_by_rules(roster, category)
+                routing += " Claude's first choice already had too many active tickets."
+            else:
+                agent, routing = pick.user, str(data["routing_reason"])[:300]
+        return {"category": category, "category_reason": category_reason, "agent": agent, "routing_reason": routing}
+
+    if not feature_enabled(settings, "intake"):
+        category = chosen or categories[0]  # the router requires a category when intake is off
+        agent, routing = route_by_rules(roster, category)
+        return IntakeDecision(category, None, agent, routing, "built-in rules", "local")
+    try:
+        result = _run(db, settings, feature="intake", user=user, ticket=ticket, use_claude=use_claude, use_local=use_local)
+    except HTTPException as e:  # "Claude only" mode and Claude failed: still create and route the ticket
+        d = use_local()
+        return IntakeDecision(d["category"], d["category_reason"], d["agent"], d["routing_reason"], "built-in rules",
+                              "local", notice=str(e.detail))
+    d = result.data
+    by = MODEL_NAMES.get(result.model, result.model) if result.source == "claude" else "built-in rules"
+    return IntakeDecision(d["category"], d["category_reason"], d["agent"], d["routing_reason"], by, result.source,
+                          notice=result.notice)
+
+
 # US-17: summary ------------------------------------------------------------
 def summarize(db: Session, user: User, ticket: Ticket) -> AiResult:
     settings = get_settings(db)
@@ -304,7 +470,7 @@ def summarize(db: Session, user: User, ticket: Ticket) -> AiResult:
         )
         content = f"{_ticket_block(ticket, redact)}\n\n{_messages_block(messages, redact)}"
         data = claude.call_structured(
-            settings, system=system, schema=schema, effort="medium", max_tokens=4000,
+            settings, system=system, schema=schema, effort="medium", max_tokens=16000,
             messages=[{"role": "user", "content": content}],
         )
         return {"summary": data["summary"], "key_points": data["key_points"][:5], "next_step": data["next_step"]}
@@ -345,7 +511,7 @@ def draft_reply(db: Session, user: User, ticket: Ticket, instructions: str = "")
         ask = f"\n\n<agent_request>{instructions}</agent_request>" if instructions else ""
         content = f"{_ticket_block(ticket, redact)}\n\n{_messages_block(messages, redact)}{ask}\n\nDraft the agent's next reply."
         data = claude.call_structured(
-            settings, system=system, schema=schema, effort="medium", max_tokens=4000,
+            settings, system=system, schema=schema, effort="medium", max_tokens=16000,
             messages=[{"role": "user", "content": content}],
         )
         return {"reply": data["reply"]}
@@ -403,7 +569,7 @@ def chat(db: Session, user: User, history: list[dict[str, str]]) -> AiResult:
             {"role": m["role"], "content": f"<question>{redact(m['content'])}</question>" if m["role"] == "user" else m["content"]}
             for m in history
         ]
-        data = claude.call_structured(settings, system=system, schema=schema, effort="low", max_tokens=3000, messages=msgs)
+        data = claude.call_structured(settings, system=system, schema=schema, effort="low", max_tokens=8000, messages=msgs)
         ids = [i for i in data["article_ids"] if i in by_id]
         return {
             "answer": data["answer"], "confident": bool(data["confident"]) and bool(ids),

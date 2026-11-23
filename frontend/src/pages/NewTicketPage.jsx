@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api, labels } from "../api";
+import { useAiFeatures } from "../components/Ai";
 
 // US-03: submit a support ticket (with US-05 category + priority)
 export default function NewTicketPage() {
@@ -16,6 +17,8 @@ export default function NewTicketPage() {
   });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const features = useAiFeatures();
+  const auto = Boolean(features?.intake); // the help desk categorizes and routes new tickets itself
 
   useEffect(() => {
     api("/categories").then(setCategories).catch((e) => setError(e.message));
@@ -29,7 +32,8 @@ export default function NewTicketPage() {
     setBusy(true);
     setError("");
     try {
-      const t = await api("/tickets", { method: "POST", body: { ...form, category_id: Number(form.category_id) } });
+      const body = { ...form, category_id: form.category_id ? Number(form.category_id) : null };
+      const t = await api("/tickets", { method: "POST", body });
       navigate(`/tickets/${t.id}`, { state: { created: true } });
     } catch (err) {
       setError(err.message);
@@ -55,10 +59,13 @@ export default function NewTicketPage() {
         <div className="row">
           <label>
             Category
-            <select value={form.category_id} onChange={set("category_id")} required>
-              <option value="" disabled>Select a category</option>
+            <select value={form.category_id} onChange={set("category_id")} required={!auto}>
+              <option value="" disabled={!auto}>{auto ? "Choose for me (recommended)" : "Select a category"}</option>
               {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+            {auto && !form.category_id && (
+              <span className="muted small">The help desk will file it under the right category and send it to an agent.</span>
+            )}
           </label>
           <label>
             Priority
@@ -81,7 +88,7 @@ export default function NewTicketPage() {
         </label>
         <div className="actions">
           <button type="button" className="btn ghost" onClick={() => navigate(-1)}>Cancel</button>
-          <button className="btn primary" disabled={busy}>{busy ? "Submitting…" : "Submit ticket"}</button>
+          <button className="btn primary" disabled={busy || !features}>{busy ? (auto ? "Submitting and routing…" : "Submitting…") : "Submit ticket"}</button>
         </div>
       </form>
     </>

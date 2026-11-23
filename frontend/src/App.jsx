@@ -40,13 +40,14 @@ export default function App() {
         <Route path="/help" element={<RequireRole roles={["end_user"]}><AssistantPage /></RequireRole>} />
         <Route path="/analytics" element={<RequireRole roles={["manager"]}><AnalyticsPage /></RequireRole>} />
         <Route path="/manage" element={<RequireRole roles={["manager"]}><ManagerPage /></RequireRole>} />
-        <Route path="/admin" element={<RequireRole roles={["admin"]}><AdminPage /></RequireRole>} />
+        <Route path="/admin" element={<Navigate to="/admin/analytics" replace />} />
+        <Route path="/admin/:section" element={<RequireRole roles={["admin"]}><AdminPage /></RequireRole>} />
         <Route
           path="/forbidden"
           element={
             <div className="card empty">
-              <h2>Access denied</h2>
-              <p className="muted">Your role does not have permission to use that feature.</p>
+              <h2>You don't have access to that page</h2>
+              <p className="muted">Your role can't use this feature. Use the menu on the left to get back to your work.</p>
             </div>
           }
         />

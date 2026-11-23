@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .ai.service import ensure_settings
-from .database import Base, SessionLocal, engine
+from .database import Base, SessionLocal, engine, add_missing_columns
 from .routers import admin, ai, analytics, attachments, auth, conversation, notifications, tickets
 from .seed import seed
 
@@ -13,6 +13,7 @@ from .seed import seed
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
+    add_missing_columns()  # columns added after a database was first created
     with SessionLocal() as db:
         if os.getenv("SEED_DEMO_DATA", "1") == "1":
             seed(db)

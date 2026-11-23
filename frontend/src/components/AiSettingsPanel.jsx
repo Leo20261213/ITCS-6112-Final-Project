@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, fmtDate, fmtRelative } from "../api";
 
 const FEATURES = [
+  ["auto_triage", "Automatic ticket intake", "New tickets are filed under a category (unless the requester picked one) and assigned to an agent as they arrive. Each decision and its reason is recorded in the ticket history, and staff can change it."],
   ["category_suggestions", "Category suggestions", "Agents can ask AI to suggest a ticket's category (US-15)."],
   ["priority_suggestions", "Urgency and priority suggestions", "Agents can ask AI to flag urgency and suggest a priority (US-16)."],
   ["summaries", "Ticket summaries", "Agents can summarize long ticket conversations (US-17)."],
@@ -13,7 +14,7 @@ const PROVIDERS = [
   ["claude", "Claude only", "Use Claude; if it's unavailable, show an error instead of a fallback."],
   ["local", "Built-in rules only", "Keyword rules on this server. No ticket data leaves the help desk."],
 ];
-const FEATURE_NAMES = { triage: "Triage", summary: "Summary", reply: "Reply draft", chatbot: "Chatbot" };
+const FEATURE_NAMES = { intake: "Ticket intake", triage: "Triage", summary: "Summary", reply: "Reply draft", chatbot: "Chatbot" };
 
 // US-21: administrators configure AI assistance so it can be managed responsibly.
 export default function AiSettingsPanel() {

@@ -11,11 +11,14 @@ import anthropic
 
 from ..models import AiSettings
 
-# Models an administrator may choose (US-21). Opus is the default.
+# Models an administrator may choose (US-21). Haiku is the default: intake, triage, summaries,
+# reply drafts and the help chatbot are short, well-structured tasks, and it costs a fraction of
+# the larger models ($0.10 / $0.50 per million input / output tokens, against $4 / $20 for Opus).
+DEFAULT_MODEL = "claude-haiku-5-5"
 MODELS = {
-    "claude-opus-5-5": "Claude Opus 5.5 (most capable, default)",
-    "claude-sonnet-5-5": "Claude Sonnet 5.5 (faster, lower cost)",
-    "claude-haiku-5-5": "Claude Haiku 5.5 (fastest, lowest cost)",
+    "claude-haiku-5-5": "Claude Haiku 5.5 (lowest cost, default)",
+    "claude-sonnet-5-5": "Claude Sonnet 5.5 (balanced)",
+    "claude-opus-5-5": "Claude Opus 5.5 (most capable, highest cost)",
 }
 # Server-side refusal fallback is available for these models; Haiku 5.5 has none.
 _FALLBACK_MODELS = {"claude-opus-5-5", "claude-sonnet-5-5"}
@@ -49,9 +52,14 @@ def call_structured(
     messages: list[dict[str, Any]],
     schema: dict[str, Any],
     effort: str = "low",
-    max_tokens: int = 4000,
+    max_tokens: int = 8000,
+    timeout: float | None = None,
 ) -> dict[str, Any]:
-    """Send one request and return the parsed JSON object Claude produced."""
+    """Send one request and return the parsed JSON object Claude produced.
+
+    Thinking is always on for the current models and counts toward max_tokens, so the
+    limits are set with room for it. `timeout` (seconds) overrides the client default for
+    requests a person is waiting on, such as ticket submission."""
     kwargs: dict[str, Any] = {
         "model": settings.model,
         "max_tokens": max_tokens,
@@ -59,6 +67,8 @@ def call_structured(
         "messages": messages,
         "output_config": {"effort": effort, "format": {"type": "json_schema", "schema": schema}},
     }
+    if timeout is not None:
+        kwargs["timeout"] = timeout
     if settings.model in _FALLBACK_MODELS:
         kwargs["betas"] = [_FALLBACK_BETA]
         kwargs["fallbacks"] = "default"

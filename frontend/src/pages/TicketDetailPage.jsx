@@ -8,12 +8,13 @@ import { PriorityBadge, StatusBadge } from "../components/Badges";
 import TicketAttachments from "../components/TicketAttachments";
 import TicketConversation from "../components/TicketConversation";
 import TicketHistory from "../components/TicketHistory";
+import Icon from "../components/Icons";
 
 const BACK = {
   end_user: ["/tickets", "My tickets"],
   agent: ["/queue", "My queue"],
   manager: ["/manage", "Assignment board"],
-  admin: ["/admin", "Administration"],
+  admin: ["/admin/tickets", "All tickets"],
 };
 
 // Ticket workspace: details (US-04), status incl. close/reopen (US-07, US-11), assignment (US-08),
@@ -25,7 +26,7 @@ export default function TicketDetailPage() {
   const [ticket, setTicket] = useState(null);
   const [meta, setMeta] = useState(null);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState(location.state?.created ? "Ticket submitted successfully." : "");
+  const [notice, setNotice] = useState("");
   const [historyKey, setHistoryKey] = useState(0);
   const features = useAiFeatures();
 
@@ -34,7 +35,16 @@ export default function TicketDetailPage() {
   useEffect(() => {
     setTicket(null);
     setError("");
-    api(`/tickets/${id}`).then(setTicket).catch((e) => setError(e.message));
+    api(`/tickets/${id}`)
+      .then((t) => {
+        setTicket(t);
+        // Tell the requester where their new ticket went (set by automatic intake).
+        if (location.state?.created) {
+          const who = t.assigned_to ? `assigned to ${t.assigned_to.full_name}` : "waiting for an agent to be assigned";
+          setNotice(`Ticket submitted. It's filed under ${t.category.name} and ${who}.`);
+        }
+      })
+      .catch((e) => setError(e.message));
     api("/meta").then(setMeta).catch(() => {});
   }, [id]);
 
@@ -50,7 +60,7 @@ export default function TicketDetailPage() {
   if (!ticket) {
     return (
       <div className="card empty">
-        {error ? <><h2>{error}</h2><Link to={back[0]}>← Back to {back[1]}</Link></> : <p className="muted">Loading…</p>}
+        {error ? <><h2>{error}</h2><Link to={back[0]}>Back to {back[1]}</Link></> : <p className="muted">Loading…</p>}
       </div>
     );
   }
@@ -60,10 +70,11 @@ export default function TicketDetailPage() {
 
   return (
     <>
-      <Link to={back[0]} className="back">← {back[1]}</Link>
+      <Link to={back[0]} className="back"><Icon name="back" size={16} />{back[1]}</Link>
       <div className="page-head">
         <div>
-          <h1><span className="muted">#{ticket.id}</span> {ticket.title}</h1>
+          <p className="ticket-id">Ticket #{ticket.id}</p>
+          <h1>{ticket.title}</h1>
           <div className="badges">
             <StatusBadge value={ticket.status} />
             <PriorityBadge value={ticket.priority} />

@@ -53,7 +53,8 @@ class CategoryOut(CategoryIn):
 class TicketCreate(BaseModel):
     title: str = Field(min_length=3, max_length=200)
     description: str = Field(min_length=10, max_length=5000)
-    category_id: int
+    # Leave out to let the help desk categorize the ticket automatically.
+    category_id: int | None = None
     priority: Priority = Priority.MEDIUM
 
 
@@ -264,6 +265,7 @@ class AiFeatures(BaseModel):
     summary: bool
     reply: bool
     chatbot: bool
+    intake: bool
 
 
 class AiSettingsOut(BaseModel):
@@ -277,6 +279,7 @@ class AiSettingsOut(BaseModel):
     summaries: bool
     reply_suggestions: bool
     chatbot: bool
+    auto_triage: bool
     share_personal_data: bool
     reply_guidance: str
     updated_at: datetime | None
@@ -294,6 +297,7 @@ class AiSettingsUpdate(BaseModel):
     summaries: bool | None = None
     reply_suggestions: bool | None = None
     chatbot: bool | None = None
+    auto_triage: bool | None = None
     share_personal_data: bool | None = None
     reply_guidance: str | None = Field(default=None, max_length=500)
 

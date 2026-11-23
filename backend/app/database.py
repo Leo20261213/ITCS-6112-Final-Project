@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -45,3 +45,29 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# Columns added in later increments. create_all() only creates missing tables, so existing
+# databases get these through a plain ALTER TABLE on start-up.
+_ADDED_COLUMNS = {
+    "ai_settings": {"auto_triage": "BOOLEAN NOT NULL DEFAULT TRUE"},
+}
+
+
+def add_missing_columns() -> None:
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        for table, columns in _ADDED_COLUMNS.items():
+            if not inspector.has_table(table):
+                continue
+            existing = {c["name"] for c in inspector.get_columns(table)}
+            for name, ddl in columns.items():
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+        if inspector.has_table("ai_settings"):
+            # The default model changed from Opus to the lower-cost Haiku. Move settings that are
+            # still on the old default and were never saved by an administrator.
+            conn.execute(text(
+                "UPDATE ai_settings SET model = 'claude-haiku-5-5' "
+                "WHERE model = 'claude-opus-5-5' AND updated_by_id IS NULL"
+            ))

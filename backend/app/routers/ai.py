@@ -7,7 +7,10 @@ US-18: As a support agent, I want AI-generated response suggestions so that I ca
 US-19: As an end-user, I want an AI chatbot to answer common questions so that I can find help quickly.
 US-21: As an administrator, I want to configure AI assistance options so that AI features can be managed responsibly.
 
-Every AI output is a suggestion. Agents apply category/priority changes and send replies themselves.
+Every AI output an agent sees is a suggestion: agents apply category/priority changes and send replies
+themselves. The one automatic step is intake (routers/tickets.py): a new ticket is categorized and routed
+to an agent as it arrives, each decision is written to the ticket history with its reason, and staff can
+change either afterwards. Administrators can turn intake off.
 """
 import os
 

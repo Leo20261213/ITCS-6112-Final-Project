@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from ..access import OVERSIGHT_ROLES, STAFF_ROLES, get_visible_ticket
 from ..activity import record
+from ..ai import service as ai
 from ..database import get_db
 from ..models import Category, EventKind, Priority, Role, Status, Ticket, User
 from ..schemas import (
@@ -70,13 +71,6 @@ def active_load():
     )
 
 
-def pick_agent(db: Session) -> User | None:
-    """Auto-route a new ticket to the active agent with the fewest active tickets.
-    Managers can reassign it afterwards (US-08)."""
-    row = db.execute(active_load()).first()
-    return row[0] if row else None
-
-
 @router.get("/meta", response_model=MetaOut)
 def meta(_: User = Depends(get_current_user)):
     return MetaOut(
@@ -113,25 +107,41 @@ def create_ticket(
     db: Session = Depends(get_db),
     user: User = Depends(require_roles(Role.END_USER)),
 ):
-    if db.get(Category, body.category_id) is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown category")
+    chosen = None
+    if body.category_id is not None:
+        chosen = db.get(Category, body.category_id)
+        if chosen is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown category")
+    elif not ai.feature_enabled(ai.get_settings(db), "intake"):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Choose a category for the ticket")
+    provisional = chosen or db.scalars(select(Category).order_by(Category.id)).first()
+    if provisional is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "No ticket categories exist yet; ask an administrator to add one")
     ticket = Ticket(
         title=body.title.strip(),
         description=body.description.strip(),
-        category_id=body.category_id,
+        category=provisional,
         priority=body.priority,
         status=Status.OPEN,
         created_by=user,
-        assigned_to=pick_agent(db),
     )
     db.add(ticket)
     db.flush()
     record(db, ticket, user, EventKind.CREATED, "Ticket submitted", notify=[])
-    if ticket.assigned_to:
+
+    # Intake: AI categorizes the ticket (unless the requester chose a category) and routes it
+    # to an agent. It falls back to built-in rules, so submission never fails because of AI.
+    decision = ai.intake(db, user, ticket, chosen)
+    ticket.category = decision.category
+    ticket.assigned_to = decision.agent
+    if decision.category_reason is not None:
+        record(db, ticket, None, EventKind.EDITED,
+               f"Categorized as {decision.category.name} by {decision.by}: {decision.category_reason}", notify=[])
+    if decision.agent:
         record(
             db, ticket, None, EventKind.ASSIGNED,
-            f"Automatically assigned to {ticket.assigned_to.full_name}",
-            notify=[ticket.assigned_to],
+            f"Automatically assigned to {decision.agent.full_name} by {decision.by}: {decision.routing_reason}",
+            notify=[decision.agent],
             message=f"New ticket #{ticket.id} “{ticket.title}” was assigned to you",
         )
     db.commit()
